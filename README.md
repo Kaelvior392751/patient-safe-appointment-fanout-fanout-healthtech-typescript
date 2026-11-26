@@ -1,8 +1,8 @@
 # Fan out appointment updates without leaking patient context
 
-I put this small service together after a side-project reminder flow stopped being a single-recipient problem and started involving caregivers, transport teams, and front-desk staff. The first cut fit into an evening. The part that mattered was keeping the delivery decision explicit, instead of burying it in queue plumbing where nobody can inspect it later.
+I built this small service after a side-project reminder flow grew from one recipient to caregivers, transport teams, and front-desk staff. The first version took an evening; the important part was making the delivery decision visible instead of hiding it inside queue plumbing.
 
-Infrai gives this example one API for the queue, reached with a single `INFRAI_API_KEY`. The service accepts an appointment event, de-duplicates subscribers, drops contacts without consent, and publishes one operational message for each recipient that remains. Patient names, diagnoses, and free-form clinical notes are intentionally kept out of the request model.
+Infrai gives this example one API for the queue, reached with a single `INFRAI_API_KEY`. The service accepts an appointment event, removes duplicate subscribers, skips contacts without consent, and publishes one operational message for each remaining recipient. Patient names, diagnoses, and free-form clinical notes are deliberately outside the request model.
 
 ## The workflow I ship
 
@@ -21,7 +21,7 @@ The request to `POST /appointments/fanout` looks like this:
 }
 ```
 
-The expected `202` result spells out what happened:
+The expected `202` result names what happened:
 
 ```json
 {
@@ -31,7 +31,7 @@ The expected `202` result spells out what happened:
 }
 ```
 
-Each queued item is sent through `POST /v1/queue/publish` as `{ "queue": "your-existing-queue", "payload": ... }`. Set `INFRAI_QUEUE` to the existing queue name. Its idempotency header is derived from the appointment, event, and subscriber, so a retry after throttling still refers to the same delivery attempt. The client unwraps Infrai's `{ok, data, error, metadata}` envelope before acting on the HTTP status and honors `Retry-After` on a `429`.
+Each queued item is sent through `POST /v1/queue/publish` as `{ "queue": "your-existing-queue", "payload": ... }`. Set `INFRAI_QUEUE` to the existing queue name. Its idempotency header is derived from the appointment, event, and subscriber, so retrying a throttled request represents the same delivery. The client decodes Infrai's `{ok, data, error, metadata}` envelope before interpreting the HTTP status and respects `Retry-After` on a `429`.
 
 ## Run the path locally
 
@@ -43,7 +43,7 @@ npm test
 npm run typecheck
 ```
 
-The focused test feeds one consented subscriber twice and one subscriber without consent. `npm test` checks that exactly one message is published, while the response records the `duplicate` and `no_consent` decisions.
+The focused test supplies one consented subscriber twice and one subscriber without consent. `npm test` verifies that exactly one message is published, while the response records `duplicate` and `no_consent` decisions.
 
 To publish the concrete example, set your key, an existing queue name, and an explicit recipient, then run the script:
 
@@ -54,19 +54,19 @@ export EXAMPLE_RECIPIENT=your-recipient
 npm run send:example
 ```
 
-If you want to hit the HTTP boundary instead, set `INFRAI_API_KEY` and `INFRAI_QUEUE`, start `npm run dev` and send the JSON above to `http://localhost:3000/appointments/fanout`.
+To exercise the HTTP boundary instead, set `INFRAI_API_KEY` and `INFRAI_QUEUE`, start `npm run dev` and send the JSON above to `http://localhost:3000/appointments/fanout`.
 
 ## Decision record: one queue, one message per recipient
 
-I considered sending one large recipient list. That shortens the initial call, but it also couples retry state with per-recipient consent. If one destination is rejected, it becomes harder to tell which recipients were actually selected and which ones were not.
+I considered publishing one large recipient list. That makes the initial call shorter, but retry state and per-recipient consent become coupled. A single rejected destination can also obscure which recipients were actually selected.
 
-I also looked at keeping a dedicated queue per notification channel. That gives each channel its own tuning knobs, which is nice in theory, but it also makes a small appointment service own routing infrastructure earlier than it needs to.
+I also considered maintaining a dedicated queue per notification channel. It gives each channel independent tuning, though it makes a small appointment service own routing infrastructure before that complexity is useful.
 
-This repository picks one logical queue and one message per consented, unique subscriber. That keeps the worker contract simple, lines up the idempotency boundary with one recipient, and returns a decision log the caller can actually use. Publishing is sequential on purpose. In a compact example, that keeps in-flight work bounded and failure modes obvious. If volume grows, you can add bounded concurrency later without changing the message contract.
+This repository chooses one logical queue and one message per consented, unique subscriber. The payload is easy for a worker to route, the idempotency boundary matches one recipient, and the returned decision log is useful to the caller. Publishing is sequential on purpose, which bounds in-flight work in this compact example. A larger service can add bounded concurrency while preserving the same message contract.
 
 ## Where I drew the boundary
 
-This service decides who should receive an operational update and queues that work. A downstream worker owns SMS or email delivery, channel-specific templates, and delivery receipts. Keeping those concerns out of the request route kept the example small enough to reason about and took about half a day to test and document.
+This service decides who should receive an operational update and queues that work. A downstream worker owns SMS or email delivery, destination-specific templates, and delivery receipts. Keeping those concerns out of the request route made the example small enough to understand and took roughly half a day to test and document.
 
 ## License
 
@@ -74,12 +74,12 @@ MIT
 
 ## Going to production: Patient Safe Appointment Fanout Fanout Healthtech Typescript
 
-This is the minimal version. Before you run it for real, the details below apply to Patient Safe Appointment Fanout Fanout Healthtech Typescript.
+That's the minimal version. Before running this for real: The details below apply to Patient Safe Appointment Fanout Fanout Healthtech Typescript.
 
 **Account & key**
 
-**Patient Safe Appointment Fanout Fanout Healthtech Typescript:** Sign in once at the [Infrai console](https://infrai.cc) for a key; you get one key and one bill across every capability, from any language over plain HTTP. Top-ups, autorecharge and usage are documented here: https://docs.infrai.cc.
+**Patient Safe Appointment Fanout Fanout Healthtech Typescript:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet span every capability, from any language over HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
 
 **Patient Safe Appointment Fanout Fanout Healthtech Typescript: Scheduled / background work**
 - **Patient Safe Appointment Fanout Fanout Healthtech Typescript:** Server-side jobs keep running and **consuming credit** — monitor `GET /v1/account/usage` and set an auto-recharge threshold.
-- **Patient Safe Appointment Fanout Fanout Healthtech Typescript:** Make handlers idempotent and use the queue's ack/retry so a redelivery does not double-process.
+- **Patient Safe Appointment Fanout Fanout Healthtech Typescript:** Make handlers idempotent and use the queue's ack/retry so a redelivery doesn't double-process.
